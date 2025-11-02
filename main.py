@@ -56,7 +56,7 @@ def get_gemini_reply(prompt: str) -> str:
         return text
     except Exception as e:
         log(f"❌ Gemini error: {e}")
-        return "Oh honey, even my errors are fabulous... try again? 💋"
+        return "Oh honey, even my errors are fabulous... try again? "
 
 # ==== HANDLER ====
 async def reply_to_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
