@@ -1,21 +1,26 @@
 import time
 import logging
+import os
+import threading
 from collections import deque
 from datetime import datetime
 import google.generativeai as genai
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
-import os
 from dotenv import load_dotenv
+from flask import Flask
 
-# ==== CONFIG ====
-
+# ==== LOAD .ENV ====
 load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-COOLDOWN_SECONDS = 3
-MEMORY_LIMIT = 5  # how many past messages to remember
+COOLDOWN_SECONDS = int(os.getenv("COOLDOWN_SECONDS", 3))
+MEMORY_LIMIT = int(os.getenv("MEMORY_LIMIT", 5))
+
+# Validate
+if not GEMINI_API_KEY or not TELEGRAM_BOT_TOKEN:
+    raise ValueError("❌ Missing GEMINI_API_KEY or TELEGRAM_BOT_TOKEN in .env / Render env vars!")
 
 # ==== SETUP ====
 genai.configure(api_key=GEMINI_API_KEY)
@@ -24,22 +29,14 @@ model = genai.GenerativeModel("gemini-2.5-flash-lite")
 chat_memory = deque(maxlen=MEMORY_LIMIT)
 last_request_time = 0
 
-# Enable Telegram internal logging
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
-
-# ==== LOGGER ====
-
+# Logging
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 def log(message: str):
     now = datetime.now().strftime("%H:%M:%S")
     print(f"[{now}] {message}")
 
 # ==== GEMINI REPLY ====
-
-
 def get_gemini_reply(prompt: str) -> str:
     context_text = "\n".join(chat_memory)
     style_prompt = (
@@ -48,23 +45,20 @@ def get_gemini_reply(prompt: str) -> str:
         You tease lightly, joke with charm, and uplift others — always respectful, never flirty or crude.
         Be the person everyone loves chatting with: smart, funny, and effortlessly cool 🌸"""
     )
+    full_prompt = f"{style_prompt}\n\nChat so far:\n{context_text}\n\nUser: {prompt}\nOlivia Emma:"
 
-    full_prompt = f"{style_prompt}\n\nChat so far:\n{context_text}\n\nUser: {prompt}\nFunny Bot:"
-
-    log(f"🧠 Sending to Gemini API:\n   {prompt}")
+    log(f"🧠 Sending to Gemini:\n   {prompt}")
 
     try:
         response = model.generate_content(full_prompt)
         text = response.text.strip() if response.text else "..."
-        log(f"💬 Gemini replied:\n   {text}")
+        log(f"💬 Olivia replied:\n   {text}")
         return text
     except Exception as e:
-        log(f"❌ Gemini API error: {e}")
-        return "I'm buffering my next genius joke..."
+        log(f"❌ Gemini error: {e}")
+        return "Oh honey, even my errors are fabulous... try again? 💋"
 
-# ==== TELEGRAM HANDLER ====
-
-
+# ==== HANDLER ====
 async def reply_to_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global last_request_time
 
@@ -74,62 +68,66 @@ async def reply_to_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text.strip()
     user_name = update.message.from_user.first_name
     chat_id = update.message.chat.id
-    # Add this: 'group', 'supergroup', etc.
     chat_type = update.message.chat.type
-    is_mention = user_message.startswith(
-        f"@{context.bot.username}") if context.bot.username else False  # Optional: Log mentions
+    is_mention = bool(context.bot.username and user_message.startswith(f"@{context.bot.username}"))
     current_time = time.time()
 
-    log(f"📩 Message from {user_name} ({chat_id}, type: {chat_type}, mention: {is_mention}): {user_message}")
+    log(f"📩 Msg from {user_name} ({chat_id}, {chat_type}, mention: {is_mention}): {user_message}")
 
-    # ... rest unchanged
-
-    log(f"📩 Message received from {user_name} ({chat_id}): {user_message}")
-
-    # Ignore commands (like /start, /help)
     if user_message.startswith("/"):
-        log("⚠️ Ignored command message.")
+        log("⚠️ Ignored command.")
         return
 
-    # Cooldown check
     if current_time - last_request_time < COOLDOWN_SECONDS:
-        log("🕒 Cooldown active. Ignoring message.")
+        log("🕒 Cooldown.")
         return
 
     last_request_time = current_time
-
-    # Add user message to memory
     chat_memory.append(f"User: {user_message}")
 
-    # Get Gemini reply
     reply = get_gemini_reply(user_message)
+    chat_memory.append(f"Olivia Emma: {reply}")
 
-    # Add bot reply to memory
-    chat_memory.append(f"Bot: {reply}")
-
-    # Send reply
     try:
         await update.message.reply_text(reply)
-        log(f"✅ Sent reply to {user_name}: {reply}")
+        log(f"✅ Replied to {user_name}: {reply}")
     except Exception as e:
-        log(f"❌ Failed to send message: {e}")
+        log(f"❌ Send failed: {e}")
 
-# ==== MAIN RUNNER ====
+# ==== MAIN ====
 if __name__ == "__main__":
-    log("🤖 Funny Gemini Community Bot is live and logging everything!")
+    log("🤖 Olivia Emma is live & fabulous! 💋")
 
-    # Delete any webhook to ensure polling works
+    # Delete webhook
     import requests
     try:
-        requests.get(
-            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/deleteWebhook")
-        log("🧹 Deleted existing Telegram webhook (if any).")
+        requests.get(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/deleteWebhook")
+        log("🧹 Webhook cleared.")
     except Exception as e:
-        log(f"⚠️ Could not delete webhook: {e}")
+        log(f"⚠️ Webhook clear failed: {e}")
 
+    # Build app
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
-    app.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND, reply_to_message))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, reply_to_message))
 
-    log("🚀 Starting polling loop now...")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    # Render or Local?
+    if os.environ.get("PORT"):
+        # Render: Flask + polling thread
+        log("🌐 Render mode: Starting Flask + polling thread...")
+        flask_app = Flask(__name__)
+
+        @flask_app.route("/health")
+        def health():
+            return {"status": "Olivia Emma is flirting! 💋"}, 200
+
+        def run_polling():
+            app.run_polling(allowed_updates=Update.ALL_TYPES)
+
+        polling_thread = threading.Thread(target=run_polling, daemon=True)
+        polling_thread.start()
+        port = int(os.environ["PORT"])
+        flask_app.run(host="0.0.0.0", port=port)
+    else:
+        # Local
+        log("🏠 Local mode: Starting polling...")
+        app.run_polling(allowed_updates=Update.ALL_TYPES)
