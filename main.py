@@ -2,6 +2,8 @@ import time
 import logging
 import os
 import threading
+import random
+import asyncio
 from collections import deque
 from datetime import datetime
 import requests
@@ -87,6 +89,13 @@ async def reply_to_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     last_request_time = current_time
     chat_memory.append(f"User: {user_message}")
 
+    # ==== RANDOM DELAY (5–20 seconds) ====
+    delay = random.uniform(5, 20)
+    log(f"💤 Olivia is thinking... waiting {delay:.1f} seconds before replying.")
+    await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+    await asyncio.sleep(delay)
+
+    # ==== GENERATE REPLY ====
     reply = get_gemini_reply(user_message)
     chat_memory.append(f"Olivia Emma: {reply}")
 
